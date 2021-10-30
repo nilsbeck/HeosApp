@@ -31,3 +31,8 @@ implement the named features:
 
 * [Pytheos](https://github.com/endlesscoil/pytheos)
 * [PySimpleGUI](https://github.com/PySimpleGUI/PySimpleGUI)
+
+## Docs
+
+Some general docs for Heos system communications can be found
+[here](https://rn.dmglobal.com/euheos/HEOS_CLI_ProtocolSpecification.pdf)
