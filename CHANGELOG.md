@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 0.2.1
+
+* Adds some better shortcuts:
+  * CMD+S: Start/Stop
+  * CMD+Left/Right: Prev/Next song
+  * CMD+P/D: Go to search input
+* Known Bugs:
+  * Working to fast with the API crashes the system (blocking coroutines)
+  * Tabbing and element focus + up/down key navigation does not work as expected
+
 ## Version 0.2
 
 * Layout extended to show two tables (search and queue) plus search field and

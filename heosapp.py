@@ -98,7 +98,7 @@ async def addToQueue(d: dict):
         # AddToEnd = 3
         # ReplaceAndPlay = 4
         await heos.api.browse.add_to_queue(player.id, '5', media.container_id, media.media_id, add_type=3)
-        await updateQueue()
+        #await updateQueue()
 
 async def search(searchString: str):
     if heos.connected == True:
@@ -120,12 +120,13 @@ async def search(searchString: str):
         searchString = searchString[1:].strip()
         tracks = await heos.api.browse.search(5, searchString, searchCriteria)
         values = [[source.name, source.artist, source.album] for source in tracks]
-        window['-SRESULT-'].update(values)
+        window['-SRESULT-'].update(values, select_rows=[0])
+        window['-SRESULT-'].SetFocus()
         window['-SRESULT-'].metadata = tracks
 
 col1 = [
     [sg.In(size=(30, 1), justification=LEFT, enable_events=TRUE, key='-SEARCH-')],
-    [sg.Table(values=[['', '', '']], headings=['Name', 'Artist', 'Album'], key='-SRESULT-',
+    [sg.Table(values=[['No data :(', '', '']], headings=['Name', 'Artist', 'Album'], key='-SRESULT-',
               justification=LEFT, size=(90, 50), def_col_width=25,
               enable_click_events=True, bind_return_key=True,
               auto_size_columns=False, display_row_numbers=True)]
@@ -137,9 +138,9 @@ col2 = [
         sg.Button(button_text='Play', key='-PLAY-'),
         sg.Button(button_text='Next', key='-NEXT-')
     ],
-    [sg.Table(values=[['', '', '']], headings=['Song', 'Album', 'Artist'], key='-QUEUE-',
+    [sg.Table(values=[['No data :(', '', '']], headings=['Song', 'Album', 'Artist'], key='-QUEUE-',
               justification=LEFT, size=(90, 50), col_widths=[30, 20, 20], enable_click_events=True,
-              bind_return_key=True, #alternating_row_color='SteelBlue3',
+              bind_return_key=True,
               auto_size_columns=False, display_row_numbers=True)]
 ]
 
@@ -148,13 +149,15 @@ layout = [
 ]
 
 # Create the window
-window = sg.Window("HEOS Player", layout, finalize=True, return_keyboard_events=True)
+window = sg.Window("HEOS Player", layout, use_default_focus=False, finalize=True, return_keyboard_events=True)
 # used for start/stop
 window.bind("<Command-s>", "Control + s")
 window.bind("<Control-s>", "Control + s")
 # search -> search + future command palette
-window.bind("<Command-p>", "Control + p")
-window.bind("<Control-p>", "Control + p")
+window.bind("<Command-p>", "key_search")
+window.bind("<Control-p>", "key_search")
+window.bind("<Command-f>", "key_search")
+window.bind("<Control-f>", "key_search")
 # next song
 window.bind("<Command-Right>", "Control + right")
 window.bind("<Control-Right>", "Control + right")
@@ -190,6 +193,7 @@ async def main():
                    _on_now_playing_changed)
     heos.subscribe('event/player_queue_changed', _on_queue_changed)
     window['-SEARCH-'].update(value='3 ', move_cursor_to="end")
+    window['-SEARCH-'].SetFocus()
     await updateQueue()
     while True:
         # timeout in window.read() are needed to not make the event
@@ -203,7 +207,7 @@ async def main():
             if event == sg.WIN_CLOSED:
                 break
             # used window.bind previously to create key combos
-            elif event == 'Control + p':
+            elif event == 'key_search':
                 window['-SEARCH-'].set_focus()
             elif event == 'Control + return':
                 print('feature not yet implemented')
@@ -219,14 +223,20 @@ async def main():
                 await playFromQueue(values)
             elif event == '-SRESULT-':
                 await addToQueue(values)
-            elif event == 'tab':
+            elif event == 'Tab:805306377':
+                elem = window.FindElementWithFocus()
                 if elem is not None and elem.Key == '-QUEUE-':
+                    if len(values['-SRESULT-']) == 0:
+                        window['-SRESULT-'].update(select_rows=[0])
                     window['-SRESULT-'].set_focus()
                 else:
+                    if len(values['-QUEUE-']) == 0:
+                        window['-QUEUE-'].update(select_rows=[0])
                     window['-QUEUE-'].set_focus()
             # React if return key was pressed
-            elif event == 'return':
-                if elem is not None:
+            
+            elif elem is not None:
+                if event == 'return':
                     # If the search box is in focus, search
                     if elem.Type == sg.ELEM_TYPE_INPUT_TEXT:
                         print(f'input-box-key: {elem.Key}')
