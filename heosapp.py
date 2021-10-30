@@ -15,20 +15,6 @@ from pytheos.pytheos import Pytheos, connect
 from pytheos.models.heos import HEOSEvent
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-
-async def setup(heos: Pytheos):
-    # with await pytheos.connect('192.168.178.25') as svc:
-    #     heos = svc
-    #await heos.connect(enable_event_connection=True, refresh=True)
-    await heos.sign_in(username='nils.beckmann@gmail.com', password='7Rqok3qk8GZDQ4jB')
-    #print(heos.connected)
-    players = await heos.get_players()
-    global player
-    player = players[0]
-    #window['-TEXT-'].update(f"Status: Connected to {player.name}")
-    #window['-TABLE-'].expand(True, True)
-
-
 async def updateQueue():
     await asyncio.sleep(0.5)
     queue = await heos.api.player.get_queue(player.id)
@@ -153,7 +139,7 @@ col2 = [
     ],
     [sg.Table(values=[['', '', '']], headings=['Song', 'Album', 'Artist'], key='-QUEUE-',
               justification=LEFT, size=(90, 50), col_widths=[30, 20, 20], enable_click_events=True,
-              bind_return_key=True,
+              bind_return_key=True, #alternating_row_color='SteelBlue3',
               auto_size_columns=False, display_row_numbers=True)]
 ]
 
@@ -170,14 +156,16 @@ window.bind("<Control-s>", "Control + s")
 window.bind("<Command-p>", "Control + p")
 window.bind("<Control-p>", "Control + p")
 # next song
-# window.bind("<Command-right>", "Control + right")
-# window.bind("<Control-right>", "Control + right")
-# # prev song
-# window.bind("<Command-left>", "Control + left")
-# window.bind("<Control-left>", "Control + left")
+window.bind("<Command-Right>", "Control + right")
+window.bind("<Control-Right>", "Control + right")
+# prev song
+window.bind("<Command-Left>", "Control + left")
+window.bind("<Control-Left>", "Control + left")
 # options for adding to queue
 window.bind("<Command-Return>", "Control + return")
 window.bind("<Control-Return>", "Control + return")
+window.bind("<Return>", "return")
+window.bind("<Tab>", "tab")
 
 heos = Pytheos
 player = Player
@@ -201,10 +189,8 @@ async def main():
     heos.subscribe('event/player_now_playing_changed',
                    _on_now_playing_changed)
     heos.subscribe('event/player_queue_changed', _on_queue_changed)
-    window['-SEARCH-'].update(value='1 ', move_cursor_to="end")
+    window['-SEARCH-'].update(value='3 ', move_cursor_to="end")
     await updateQueue()
-    test = await heos.get_sources()
-    print(test)
     while True:
         # timeout in window.read() are needed to not make the event
         # listener hang up himself
@@ -233,8 +219,13 @@ async def main():
                 await playFromQueue(values)
             elif event == '-SRESULT-':
                 await addToQueue(values)
+            elif event == 'tab':
+                if elem is not None and elem.Key == '-QUEUE-':
+                    window['-SRESULT-'].set_focus()
+                else:
+                    window['-QUEUE-'].set_focus()
             # React if return key was pressed
-            elif event == 'Return:603979789':
+            elif event == 'return':
                 if elem is not None:
                     # If the search box is in focus, search
                     if elem.Type == sg.ELEM_TYPE_INPUT_TEXT:
