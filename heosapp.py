@@ -1,5 +1,5 @@
 from inspect import currentframe
-from tkinter.constants import FALSE, LEFT, MOVETO, TRUE, X
+from tkinter.constants import FALSE, HORIZONTAL, LEFT, MOVETO, TRUE, VERTICAL, X
 from tkinter.ttk import Combobox
 from PySimpleGUI.PySimpleGUI import T, Combo, Element, Text
 import asyncio
@@ -15,7 +15,7 @@ from pytheos.models.source import Source
 from pytheos.pytheos import Pytheos, connect
 from pytheos.models.heos import HEOSEvent
 
-sg.theme('dark amber')
+sg.theme('dark')
 loading_animation = sg.DEFAULT_BASE64_LOADING_GIF
 
 def makeArrowKeysWork(elem: Element, row: dict):
@@ -46,6 +46,15 @@ async def _on_now_playing_changed(event: HEOSEvent):
     print(f'Now Playing Changed Event: {event}')
 
 
+async def _on_volume_changed(event: HEOSEvent):
+    """ Handles event/player_volume_changed events from HEOS.
+
+    :param event: Event object
+    :return: None
+    """
+    #window['-VOLUME-'].update(value=volume)
+    print(f'Volume Changed Event: {event}')
+
 async def _on_queue_changed(event: HEOSEvent):
     """ Handles event/player_queue_changed events from HEOS.
 
@@ -74,12 +83,16 @@ async def playFromQueue(d: dict):
 
 async def playNext():
     if heos.connected == True:
+        sg.PopupAnimated(loading_animation)
         await player.next()
+        sg.PopupAnimated(None)
 
 
 async def playPrevious():
     if heos.connected == True:
+        sg.PopupAnimated(loading_animation)
         await player.previous()
+        sg.PopupAnimated(None)
 
 
 async def playPause():
@@ -98,8 +111,10 @@ async def playPause():
 
 async def setVolume(volume: int):
     if heos.connected == True:
+        sg.PopupAnimated(loading_animation)
         await heos.api.player.set_volume(player.id, volume)
         print('volume 12')
+        sg.PopupAnimated(None)
 
 async def addToQueue(d: dict):
     if len(d['-SRESULT-']) == 1 and heos.connected == True:
@@ -146,28 +161,51 @@ async def search(searchString: str):
         window['-SRESULT-'].metadata = tracks
         sg.PopupAnimated(None)
 
+
+def PopupDropDown(title, text, values):
+    window = sg.Window(title, finalize=True, no_titlebar=True, modal=True, border_depth=0,
+                       margins=(0, 0), element_padding=0, return_keyboard_events=True, font='Monospace 12',
+        layout=[
+            [sg.Table(values=values, headings=['Your options:'], justification='left', row_height= 25, key='-LIST-', size=(40, 10), bind_return_key=True, enable_events=True, font='Monospace 14',
+                      select_mode=sg.TABLE_SELECT_MODE_BROWSE, def_col_width=40, auto_size_columns=False, alternating_row_color='grey28', selected_row_colors=('ghostwhite', 'wheat4'))]
+        ])
+    while True:
+        event, values = window.read(timeout=10)
+        if event != '__TIMEOUT__':
+            print(event, values)
+            if event == 'Escape:889192475':
+                break
+            if event == 'Return:603979789':
+                print('return pressed')
+            if event in (sg.WIN_CLOSED, 'Exit'):                # always check for closed window
+                break
+    window.close()
+    return None if event != 'Esc' else values['-LIST-']
+
 col1 = [
-    [sg.In(size=(30, 1), justification=LEFT, enable_events=TRUE, key='-SEARCH-')],
+    [sg.In(size=(30, 1), justification=LEFT,
+           enable_events=TRUE, key='-SEARCH-', border_width=0)],
     [sg.Table(values=[], headings=['Name', 'Artist', 'Album'], key='-SRESULT-',
               justification=LEFT, size=(60, 40), col_widths=[20, 15, 15], select_mode=sg.TABLE_SELECT_MODE_EXTENDED,
-              enable_click_events=True, bind_return_key=True, alternating_row_color='salmon4',
+              enable_click_events=True, bind_return_key=True, alternating_row_color='grey28', selected_row_colors=('ghostwhite', 'wheat4'),
               auto_size_columns=False, display_row_numbers=True)]
 ]
 
 col2 = [
     [
-        sg.Button(button_text='Prev', key='-PREV-'),
-        sg.Button(button_text='Play', key='-PLAY-'),
-        sg.Button(button_text='Next', key='-NEXT-')
+        sg.Slider(range=(0, 100), default_value=10, orientation=HORIZONTAL, enable_events=True, disable_number_display=True, key='-VOLUME-', border_width=0)
+        # sg.Button(button_text='Prev', key='-PREV-'),
+        # sg.Button(button_text='Play', key='-PLAY-'),
+        # sg.Button(button_text='Next', key='-NEXT-')
     ],
     [sg.Table(values=[['No data :(', '', '']], headings=['Song', 'Album', 'Artist'], key='-QUEUE-',
-              justification=LEFT, size=(60, 40), col_widths=[20, 15, 15], enable_click_events=True,
-              bind_return_key=True, alternating_row_color='salmon4', select_mode=sg.TABLE_SELECT_MODE_EXTENDED,
+              justification=LEFT, size=(60, 40), col_widths=[20, 15, 15], enable_click_events=True, selected_row_colors=('ghostwhite', 'wheat4'),
+              bind_return_key=True, alternating_row_color='grey28', select_mode=sg.TABLE_SELECT_MODE_EXTENDED,
               auto_size_columns=False, display_row_numbers=True)]
 ]
 
 layout = [
-    [sg.Column(col1), sg.Column(col2)]
+    [sg.Column(col1), sg.Column(col2, element_justification='right')]
 ]
 
 # Create the window
@@ -192,12 +230,11 @@ window.bind("<Control-Left>", "Control + left")
 # options for adding to queue
 window.bind("<Command-Return>", "Control + return")
 window.bind("<Control-Return>", "Control + return")
+# for readability
 window.bind("<Return>", "return")
-#window.bind("<Tab>", "tab")
 
 heos = Pytheos
 player = Player
-
 
 async def main():
     sg.PopupAnimated(loading_animation)
@@ -209,23 +246,28 @@ async def main():
     print("Connecting to first device found...")
     global heos
     heos = await pytheos.connect(services[0])
+    heos.subscribe('event/player_state_changed', _on_player_state_changed)
+    heos.subscribe('event/player_now_playing_changed',
+                   _on_now_playing_changed)
+    heos.subscribe('event/player_queue_changed', _on_queue_changed)
+    heos.subscribe('event/player_volume_changed', _on_volume_changed)
     print(f"Connected to {heos.server}!")
     players = await heos.get_players()
     global player
     player = players[0]
     window.set_title(f'HEOS App ({player.name})')
-    heos.subscribe('event/player_state_changed', _on_player_state_changed)
-    heos.subscribe('event/player_now_playing_changed',
-                   _on_now_playing_changed)
-    heos.subscribe('event/player_queue_changed', _on_queue_changed)
     window['-SEARCH-'].update(value='3 ', move_cursor_to="end")
     window['-SEARCH-'].SetFocus()
     await updateQueue()
+    volume = await player.get_volume()
+    window['-VOLUME-'].update(value=volume)
+    window['-VOLUME-'].set_tooltip(f'Volume: {volume}')
     elem = window.find_element_with_focus()
-
     sg.PopupAnimated(None)
 
     while True:
+        # sleep is need for the event subscription to work!
+        await asyncio.sleep(0.5)
         # timeout in window.read() are needed to not make the event
         # listener hang up himself
         event, values = window.read(timeout=10)
@@ -240,7 +282,9 @@ async def main():
             elif event == 'key_search':
                 window['-SEARCH-'].set_focus()
             elif event == 'Control + return':
-                print('feature not yet implemented')
+                values = ['choice {}'.format(x) for x in range(30)]
+                #INFO: Bug in MacOS with modal windows: https: // github.com/PySimpleGUI/PySimpleGUI/issues/4511
+                print(PopupDropDown('My Title', 'Please make a selection', values))
                 # TODO: add options function
             elif event == '-PLAY-'or event == 'Control + p':
                 await playPause()
@@ -251,6 +295,9 @@ async def main():
             elif event == '-QUEUE-':
                 print('play a song')
                 await playFromQueue(values)
+            elif event == '-VOLUME-':
+                print('set volume')
+                await setVolume(values['-VOLUME-'])
             elif event == '-SRESULT-':
                 await addToQueue(values)
             elif event == 'Tab:805306377':
@@ -280,3 +327,6 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+    # loop = asyncio.get_event_loop()
+    # loop.run_until_complete(main())
+    # loop.run_forever()
