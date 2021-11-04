@@ -182,7 +182,7 @@ def closeWindow(popup):
     window['-SRESULT-'].set_focus(True)
     popup.close()
 
-async def PopupDropDown():
+async def AddWithOptionPopup():
     # AddToQueueType:
     # PlayNow = 1
     # PlayNext = 2
@@ -337,7 +337,7 @@ async def main():
                 window['-SEARCH-'].set_focus(True)
             elif event == 'Control + return' and elem != None and elem.Key == '-SRESULT-':
                 #INFO: Bug in MacOS with modal windows: https: // github.com/PySimpleGUI/PySimpleGUI/issues/4511
-                type = await PopupDropDown()
+                type = await AddWithOptionPopup()
                 if type != None:
                     await addToQueue(values, queueType=type)
             elif event == 'delete' and elem != None and elem.Key == '-QUEUE-':
