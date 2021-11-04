@@ -1,5 +1,6 @@
 from inspect import currentframe
-from tkinter.constants import FALSE, HORIZONTAL, LEFT, MOVETO, TRUE, VERTICAL, X
+import queue
+from tkinter.constants import FALSE, FLAT, HORIZONTAL, LEFT, MOVETO, TRUE, VERTICAL, X
 from tkinter.ttk import Combobox
 from PySimpleGUI.PySimpleGUI import T, Combo, Element, Text
 import asyncio
@@ -17,6 +18,7 @@ from pytheos.models.heos import HEOSEvent
 
 sg.theme('dark')
 loading_animation = sg.DEFAULT_BASE64_LOADING_GIF
+elem = None
 
 def makeArrowKeysWork(elem: Element, row: dict):
     if len(row) == 0:
@@ -27,15 +29,6 @@ def makeArrowKeysWork(elem: Element, row: dict):
     elem.Widget.selection_set(table_row)  # move selection
     elem.Widget.focus(table_row)  # move focus
     elem.Widget.see(table_row)  # scroll to show it
-
-async def updateQueue():
-    await asyncio.sleep(0.5)
-    queue = await heos.api.player.get_queue(player.id)
-    #print(queue)
-    cleanedQueue = [[item.song, item.album, item.artist] for item in queue]
-    #list = await pyheos.api.player.play_queue(player.id,1)
-    window['-QUEUE-'].update(values=cleanedQueue)
-
 
 async def _on_now_playing_changed(event: HEOSEvent):
     """ Handles event/player_now_playing_changed events from HEOS.
@@ -62,6 +55,8 @@ async def _on_queue_changed(event: HEOSEvent):
     :return: None
     """
     await updateQueue()
+    if elem != None:
+        elem.set_focus(True)
 
 
 async def _on_player_state_changed(event: HEOSEvent):
@@ -72,6 +67,18 @@ async def _on_player_state_changed(event: HEOSEvent):
     """
     print(f'Player State Changed Event: {event}')
 
+async def getSources():
+    sources = await heos.get_sources()
+    return [(source.id, source.name) for source in sources.values()]
+
+async def updateQueue():
+    if heos.connected == True:
+        sg.PopupAnimated(loading_animation)
+        await asyncio.sleep(0.5)
+        queue = await heos.api.player.get_queue(player.id)
+        cleanedQueue = [[item.song, item.album, item.artist] for item in queue]
+        window['-QUEUE-'].update(values=cleanedQueue)
+        sg.PopupAnimated(None)
 
 async def playFromQueue(d: dict):
     if len(d['-QUEUE-']) == 1 and heos.connected == True:
@@ -116,22 +123,29 @@ async def setVolume(volume: int):
         print('volume 12')
         sg.PopupAnimated(None)
 
-async def addToQueue(d: dict):
-    if len(d['-SRESULT-']) == 1 and heos.connected == True:
+async def deleteFromQueue(d: dict):
+    if len(d['-QUEUE-']) > 0 and heos.connected == True:
         sg.PopupAnimated(loading_animation)
-        index = d['-SRESULT-'][0]
-        media = window['-SRESULT-'].metadata[index]
-        media.source_id = '5'
-        if media.container_id == None:
-            media.container_id = ''
-        print(media)
-        # AddToQueueType:
-        # PlayNow = 1
-        # PlayNext = 2
-        # AddToEnd = 3
-        # ReplaceAndPlay = 4
-        await heos.api.browse.add_to_queue(player.id, '5', media.container_id, media.media_id, add_type=3)
-        await updateQueue()
+        ids = [id+1 for id in d['-QUEUE-']]
+        await heos.api.player.remove_from_queue(player.id, ids)
+        sg.PopupAnimated(None)
+
+async def addToQueue(d: dict, queueType:int=3):
+    if len(d['-SRESULT-']) > 0 and heos.connected == True:
+        sg.PopupAnimated(loading_animation)
+        for index in d['-SRESULT-']:
+            #index = d['-SRESULT-'][0]
+            media = window['-SRESULT-'].metadata[index]
+            media.source_id = '5'
+            if media.container_id == None:
+                media.container_id = ''
+            print(media)
+            # AddToQueueType:
+            # PlayNow = 1
+            # PlayNext = 2
+            # AddToEnd = 3
+            # ReplaceAndPlay = 4
+            await heos.api.browse.add_to_queue(player.id, '5', media.container_id, media.media_id, add_type=queueType)
         sg.PopupAnimated(None)
 
 async def search(searchString: str):
@@ -153,38 +167,67 @@ async def search(searchString: str):
         else:
             return
         searchString = searchString[1:].strip()
-        tracks = await heos.api.browse.search(5, searchString, searchCriteria)
-        values = [[source.name, source.artist, source.album] for source in tracks]
-        window['-SRESULT-'].update(values)
-        makeArrowKeysWork(window['-SRESULT-'], [0])
-        window['-SRESULT-'].SetFocus()
-        window['-SRESULT-'].metadata = tracks
+        if searchString != '': 
+            tracks = await heos.api.browse.search(5, searchString, searchCriteria)
+            values = [[source.name, source.artist, source.album] for source in tracks]
+            window['-SRESULT-'].update(values)
+            makeArrowKeysWork(window['-SRESULT-'], [0])
+            window['-SRESULT-'].SetFocus(True)
+            window['-SRESULT-'].metadata = tracks
+        else:
+            window['-SEARCH-'].SetFocus(True)
         sg.PopupAnimated(None)
 
+def closeWindow(popup):
+    window['-SRESULT-'].set_focus(True)
+    popup.close()
 
-def PopupDropDown(title, text, values):
-    window = sg.Window(title, finalize=True, no_titlebar=True, modal=True, border_depth=0,
+async def PopupDropDown():
+    # AddToQueueType:
+    # PlayNow = 1
+    # PlayNext = 2
+    # AddToEnd = 3
+    # ReplaceAndPlay = 4
+    option = [
+        ['Play next'],
+        ['Play now'],
+        ['Add to end'],
+        ['Replace and play']
+    ]
+    optionId = [2, 1, 3, 4]
+    popup = sg.Window('', finalize=True, no_titlebar=True, modal=True, border_depth=0,
                        margins=(0, 0), element_padding=0, return_keyboard_events=True, font='Monospace 12',
         layout=[
-            [sg.Table(values=values, headings=['Your options:'], justification='left', row_height= 25, key='-LIST-', size=(40, 10), bind_return_key=True, enable_events=True, font='Monospace 14',
+            [sg.Table(values=option, headings=['Your options:'], justification='left', row_height=25, key='-LIST-', size=(40, 10), bind_return_key=True, enable_events=True, font='Monospace 14',
                       select_mode=sg.TABLE_SELECT_MODE_BROWSE, def_col_width=40, auto_size_columns=False, alternating_row_color='grey28', selected_row_colors=('ghostwhite', 'wheat4'))]
         ])
+    popup['-LIST-'].set_focus(True)
+    makeArrowKeysWork(popup['-LIST-'], ())
+    value = None
+    await asyncio.sleep(0.1)
     while True:
-        event, values = window.read(timeout=10)
+        event, values = popup.read(timeout=100)
         if event != '__TIMEOUT__':
             print(event, values)
             if event == 'Escape:889192475':
+                closeWindow(popup)
                 break
-            if event == 'Return:603979789':
+            elif event == 'Return:603979789' and len(values['-LIST-']) == 1:
                 print('return pressed')
-            if event in (sg.WIN_CLOSED, 'Exit'):                # always check for closed window
+                value = optionId[values['-LIST-'][0]]
+                closeWindow(popup)
                 break
-    window.close()
-    return None if event != 'Esc' else values['-LIST-']
+            elif event in (sg.WIN_CLOSED, 'Exit'):                # always check for closed window
+                break
+    return value
 
 col1 = [
-    [sg.In(size=(30, 1), justification=LEFT,
-           enable_events=TRUE, key='-SEARCH-', border_width=0)],
+    [
+        sg.In(size=(30, 1), justification=LEFT,
+           enable_events=TRUE, key='-SEARCH-', border_width=0),
+        sg.Combo(values=[], enable_events=True, readonly=True,
+                 key='-COMBO-', size=(25, 1))
+    ],
     [sg.Table(values=[], headings=['Name', 'Artist', 'Album'], key='-SRESULT-',
               justification=LEFT, size=(60, 40), col_widths=[20, 15, 15], select_mode=sg.TABLE_SELECT_MODE_EXTENDED,
               enable_click_events=True, bind_return_key=True, alternating_row_color='grey28', selected_row_colors=('ghostwhite', 'wheat4'),
@@ -193,7 +236,7 @@ col1 = [
 
 col2 = [
     [
-        sg.Slider(range=(0, 100), default_value=10, orientation=HORIZONTAL, enable_events=True, disable_number_display=True, key='-VOLUME-', border_width=0)
+        sg.Slider(range=(0, 100), default_value=10, orientation=HORIZONTAL, enable_events=True, disable_number_display=True, key='-VOLUME-')
         # sg.Button(button_text='Prev', key='-PREV-'),
         # sg.Button(button_text='Play', key='-PLAY-'),
         # sg.Button(button_text='Next', key='-NEXT-')
@@ -204,19 +247,19 @@ col2 = [
               auto_size_columns=False, display_row_numbers=True)]
 ]
 
+sg.set_options(margins=(0, 0), border_width=0,
+               slider_relief=sg.RELIEF_FLAT, font='Monospace 12', slider_border_width=0)
 layout = [
     [sg.Column(col1), sg.Column(col2, element_justification='right')]
 ]
 
 # Create the window
 window = sg.Window("HEOS Player", layout, use_default_focus=False, finalize=True,
-                   font='Monospace 12', return_keyboard_events=True, margins=(0, 0))
+                    return_keyboard_events=True, margins=(0, 0))
 # used for start/stop
 window.bind("<Command-p>", "Control + p")
 window.bind("<Control-p>", "Control + p")
 # search -> search + future command palette
-window.bind("<Command-k>", "key_search")
-window.bind("<Control-k>", "key_search")
 window.bind("<Command-f>", "key_search")
 window.bind("<Control-f>", "key_search")
 window.bind("<Command-s>", "key_search")
@@ -232,6 +275,12 @@ window.bind("<Command-Return>", "Control + return")
 window.bind("<Control-Return>", "Control + return")
 # for readability
 window.bind("<Return>", "return")
+window.bind("<Tab>", "tab")
+# deleting queue items
+window.bind("<Command-Delete>", "delete")
+window.bind("<Control-Delete>", "delete")
+window.bind("<Command-BackSpace>", "delete")
+window.bind("<Control-BackSpace>", "delete")
 
 heos = Pytheos
 player = Player
@@ -243,6 +292,7 @@ async def main():
         print("No HEOS services detected!")
         return
 
+    window['-COMBO-'].update(values=services, set_to_index=0)
     print("Connecting to first device found...")
     global heos
     heos = await pytheos.connect(services[0])
@@ -255,6 +305,7 @@ async def main():
     players = await heos.get_players()
     global player
     player = players[0]
+    sources = await getSources()
     window.set_title(f'HEOS App ({player.name})')
     window['-SEARCH-'].update(value='3 ', move_cursor_to="end")
     window['-SEARCH-'].SetFocus()
@@ -262,30 +313,35 @@ async def main():
     volume = await player.get_volume()
     window['-VOLUME-'].update(value=volume)
     window['-VOLUME-'].set_tooltip(f'Volume: {volume}')
+    global elem
     elem = window.find_element_with_focus()
     sg.PopupAnimated(None)
 
     while True:
         # sleep is need for the event subscription to work!
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.01)
         # timeout in window.read() are needed to not make the event
         # listener hang up himself
-        event, values = window.read(timeout=10)
+        event, values = window.read(timeout=400)
         if event != '__TIMEOUT__':
             print(f"event: {event}")
             print(f"values: {values}")
+            if elem != None:
+                print(f"elem: {elem.Key}")
             #elem = 
             # End program if user closes window
             if event == sg.WIN_CLOSED:
                 break
             # used window.bind previously to create key combos
             elif event == 'key_search':
-                window['-SEARCH-'].set_focus()
-            elif event == 'Control + return':
-                values = ['choice {}'.format(x) for x in range(30)]
+                window['-SEARCH-'].set_focus(True)
+            elif event == 'Control + return' and elem != None and elem.Key == '-SRESULT-':
                 #INFO: Bug in MacOS with modal windows: https: // github.com/PySimpleGUI/PySimpleGUI/issues/4511
-                print(PopupDropDown('My Title', 'Please make a selection', values))
-                # TODO: add options function
+                type = await PopupDropDown()
+                if type != None:
+                    await addToQueue(values, queueType=type)
+            elif event == 'delete' and elem != None and elem.Key == '-QUEUE-':
+                await deleteFromQueue(values)
             elif event == '-PLAY-'or event == 'Control + p':
                 await playPause()
             elif event == '-PREV-' or event == 'Control + left':
@@ -300,7 +356,7 @@ async def main():
                 await setVolume(values['-VOLUME-'])
             elif event == '-SRESULT-':
                 await addToQueue(values)
-            elif event == 'Tab:805306377':
+            elif event == 'tab':
                 if elem is not None and elem.Key == '-QUEUE-' and len(window['-SRESULT-'].Widget.get_children()) > 0:
                     # Workaround: otherwise arrow keys do not work after set_focus()
                     makeArrowKeysWork(window['-SRESULT-'], values['-SRESULT-'])
