@@ -24,6 +24,18 @@ implement the following:
 * Search for music from a configured online service (Deezer, Spotify, etc)
 * Add music to queue from those services (see above)
 
+## Installation
+
+You can run the py script directly or create a bundle using pyinstaller:
+
+```bash
+pyinstaller \
+    --noconfirm --log-level=WARN \
+    --onefile --clean --windowed \
+    --disable-windowed-traceback \
+    --name=HeosApp heosapp.spec
+```
+
 ## Contribution
 
 Thanks to the following projects, I believe I'll be able to create the app and
