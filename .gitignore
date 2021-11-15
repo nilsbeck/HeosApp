@@ -3,3 +3,6 @@
 pytheos.log
 test.py
 *.pyc
+/dist
+/build
+*.spec
