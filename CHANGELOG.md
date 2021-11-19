@@ -4,6 +4,7 @@
 
 * Adds back/forward navigation with left/right key for the search window in an
   `Undo`/`Redo` manner.
+* Adds volume change with `Shift+Right`/Up and `Shift+Left`/Down
 
 ## Version 0.3
 
