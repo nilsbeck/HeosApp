@@ -1,14 +1,19 @@
 # Changelog
 
+## Version 0.4
+
+* Adds back/forward navigation with left/right key for the search window in an
+  `Undo`/`Redo` manner.
+
 ## Version 0.3
 
 * Improves again on shortcuts:
-  * CTRL/CMD+P: Play/Pause music
-  * CTRL/CMD+F/S: Enter search field
-  * CTRL/CMD+Left/Right: Prev/Next song
-  * SHIFT/CTRL/CMD+Return: Add album/song to queue with options
-  * CTRL/CMD+Del/Backspace: Delete items from queue
-  * CTRL/CMD+R: Refresh HEOS device search
+  * CTRL/`CMD+P`: Play/Pause music
+  * CTRL/`CMD+S`/F: Enter search field
+  * CTRL/`CMD+Left/Right`: Prev/Next song
+  * SHIFT/CTRL/`CMD+Return`: Add album/song to queue with options
+  * CTRL/`CMD+Backspace`/Del: Delete items from queue
+  * CTRL/`CMD+R`: Refresh HEOS device search
 * Adds navigation through search results
   * Songs/albums can be added to queue
   * Stations can be played directly

@@ -26,6 +26,12 @@ implement the following:
 
 ## Installation
 
+Using py2applet:
+```bash
+py2applet --iconfile assets/music.png --make-setup HeosApp.py
+py2applet --make-setup HeosApp.py
+```
+
 You can run the py script directly or create a bundle using pyinstaller:
 
 ```bash
@@ -33,7 +39,8 @@ pyinstaller \
     --noconfirm --log-level=WARN \
     --onefile --clean --windowed \
     --disable-windowed-traceback \
-    --name=HeosApp heosapp.spec
+    --icon=assets/music.png \
+    --name=HeosApp heosapp.py
 ```
 
 ## Contribution
@@ -43,6 +50,7 @@ implement the named features:
 
 * [Pytheos](https://github.com/endlesscoil/pytheos)
 * [PySimpleGUI](https://github.com/PySimpleGUI/PySimpleGUI)
+* Icons made by [Freepik](https://www.freepik.com) from [www.flaticon.com](https://www.flaticon.com/)
 
 ## Docs
 
