@@ -1,5 +1,7 @@
 from inspect import currentframe
 import asyncio
+from os import wait
+from typing import Any
 import pytheos
 from pytheos.controllers.player import Player
 from pytheos.models.browse import AddToQueueType, SearchCriteria, ServiceOption
@@ -12,9 +14,12 @@ from utils import *
 from popup import *
 from layout import *
 
-SOURCE_ID = 5 # Deezer
+# source_id 5 = DEEZER
+sources = {}
 pytheos.set_log_level(0)
 elem = None
+# unsupported soruces do not return any search criteria, so I can't use them...
+unsupportedSources = [13, 1024, 1025, 1026, 1027, 1028]
 
 
 async def _on_now_playing_changed(event: HEOSEvent):
@@ -57,8 +62,41 @@ async def _on_player_state_changed(event: HEOSEvent):
     """
     print(f'Player State Changed Event: {event}')
 
+
+def updateStatusText(error:str=''):
+    status = ''
+    if heos.connected == True:
+        status = f'Connected to: {player.name} '
+    else:
+        status = 'Disconnected '
+    source = sg.user_settings_get_entry('source_id', 5)
+    status += f'| Source: {sources[source][0]} '
+    if error != '':
+        status += f'| error occurred while {error}'
+    window['-STATUS-'].update(value=status)
+    global resetCounter
+    resetCounter = 0
+
+async def execCommand(fun, info:str, selectResults:bool=False, **kwargs) -> Any:
+    sg.PopupAnimated(loading_animation)
+    res = None
+    try:
+        if heos.connected == False:
+            await connect()
+        res = await fun(**kwargs)
+    except:
+        updateStatusText(info)
+    finally:
+        sg.PopupAnimated(None)
+        if selectResults:
+            makeArrowKeysWork(window['-SRESULT-'])
+        elif not selectResults:
+            makeArrowKeysWork(window['-QUEUE-'])
+        return res
+
 async def connect():
     services = await pytheos.discover(5)
+    err = ''
     if services:
         #[service. for service in services]
         window['-COMBO-'].update(values=services, set_to_index=0)
@@ -69,6 +107,9 @@ async def connect():
         await updateAfterConnect()
     else:
         window.set_title(f'HEOS App (DISCONNECTED)')
+        makeArrowKeysWork(window['-QUEUE-'])
+        err = 'on connecting to HEOS'
+    updateStatusText(err)
 
 async def updateAfterConnect():
     heos.subscribe('event/player_state_changed', _on_player_state_changed)
@@ -79,11 +120,14 @@ async def updateAfterConnect():
     players = await heos.get_players()
     global player
     player = players[0]
-    sources = await getSources()
-    print(sources)
+    global sources
+    sources = await execCommand(getSources, 'getting sources')
+    source = sg.user_settings_get_entry('source_id', 5)
+    if not source in sources:
+        sg.user_settings_set_entry('source_id', list(sources.keys())[0])
     window.set_title(f'HEOS App ({player.name})')
     window['-SEARCH-'].update(value='3 ', move_cursor_to="end")
-    window['-SEARCH-'].SetFocus()
+    window['-SEARCH-'].SetFocus(True)
     await updateQueue()
     volume = await player.get_volume()
     window['-VOLUME-'].update(value=volume)
@@ -91,81 +135,56 @@ async def updateAfterConnect():
 
 async def getSources():
     sources = await heos.get_sources()
-    return [(source.id, source.name) for source in sources.values()]
+    return {source.id : [source.name] for source in sources.values()}
 
 async def updateQueue():
-    if heos.connected == True:
-        sg.PopupAnimated(loading_animation)
-        await asyncio.sleep(0.5)
-        queue = []
-        start = 0
-        increment = 100
-        while True:
-            result = await heos.api.player.get_queue(player.id, start, increment)
-            if len(result) == 0:
-                break
-            if len(queue) == 0:
-                queue = result
-            else: 
-                for item in result:
-                    queue.append(item)
-            start += increment
-        if len(queue) > 0:
-            cleanedQueue = [[item.song, item.album, item.artist] for item in queue]
-            window['-QUEUE-'].update(values=cleanedQueue)
-        makeArrowKeysWork(window['-SRESULT-'])
-        window['-SRESULT-'].SetFocus(True)
-        sg.PopupAnimated(None)
+    await asyncio.sleep(0.5)
+    queue = []
+    start = 0
+    increment = 100
+    while True:
+        result = await heos.api.player.get_queue(player.id, start, increment)
+        if len(result) == 0:
+            break
+        if len(queue) == 0:
+            queue = result
+        else: 
+            for item in result:
+                queue.append(item)
+        start += increment
+    if len(queue) > 0:
+        cleanedQueue = [[item.song, item.album, item.artist] for item in queue]
+        window['-QUEUE-'].update(values=cleanedQueue)
+    makeArrowKeysWork(window['-SRESULT-'])
 
 async def playFromQueue(d: dict):
-    if len(d['-QUEUE-']) == 1 and heos.connected == True:
-        sg.PopupAnimated(loading_animation)
+    if len(d['-QUEUE-']) == 1:
         index = d['-QUEUE-'][0]+1
         await heos.api.player.play_queue(player.id, index)
-        sg.PopupAnimated(None)
 
 
 async def playNext():
-    if heos.connected == True:
-        sg.PopupAnimated(loading_animation)
-        await player.next()
-        sg.PopupAnimated(None)
+    await player.next()
 
 
 async def playPrevious():
-    if heos.connected == True:
-        sg.PopupAnimated(loading_animation)
-        await player.previous()
-        sg.PopupAnimated(None)
+    await player.previous()
 
 
 async def playPause():
-    if heos.connected == True:
-        try:
-            sg.PopupAnimated(loading_animation)
-            state = await heos.api.player.get_play_state(player.id)
-            if state.value == 'stop' or state.value == 'pause':
-                await heos.api.player.set_play_state(player.id, PlayState('play'))
-            else:
-                await heos.api.player.set_play_state(player.id, PlayState('pause'))
-        finally:
-            print('error occurred.')
-            sg.PopupAnimated(None)
+    state = await heos.api.player.get_play_state(player.id)
+    if state.value == 'stop' or state.value == 'pause':
+        await heos.api.player.set_play_state(player.id, PlayState('play'))
+    else:
+        await heos.api.player.set_play_state(player.id, PlayState('pause'))
 
 
 async def setVolume(volume: int):
-    if heos.connected == True:
-        sg.PopupAnimated(loading_animation)
-        #window['-VOLUME-'].update(value=volume)
-        await heos.api.player.set_volume(player.id, volume)
-        sg.PopupAnimated(None)
+    await heos.api.player.set_volume(player.id, volume)
 
 async def deleteFromQueue(d: dict):
-    if len(d['-QUEUE-']) > 0 and heos.connected == True:
-        sg.PopupAnimated(loading_animation)
-        ids = [id+1 for id in d['-QUEUE-']]
-        await heos.api.player.remove_from_queue(player.id, ids)
-        sg.PopupAnimated(None)
+    ids = [id+1 for id in d['-QUEUE-']]
+    await heos.api.player.remove_from_queue(player.id, ids)
 
 async def handleNavigation(d: dict, queueType:int=3, open:bool=True):
     # AddToQueueType:
@@ -173,8 +192,7 @@ async def handleNavigation(d: dict, queueType:int=3, open:bool=True):
     # PlayNext = 2
     # AddToEnd = 3
     # ReplaceAndPlay = 4
-    if len(d['-SRESULT-']) > 0 and heos.connected == True:
-        sg.PopupAnimated(loading_animation)
+    if len(d['-SRESULT-']) > 0:
         isPlayable = True
         for index in d['-SRESULT-']:
             media = window['-SRESULT-'].metadata[index]
@@ -185,7 +203,7 @@ async def handleNavigation(d: dict, queueType:int=3, open:bool=True):
         if isPlayable == True:
             for index in d['-SRESULT-']:
                 media = window['-SRESULT-'].metadata[index]
-                media.source_id = SOURCE_ID
+                media.source_id = sg.user_settings_get_entry('source_id', 5)
                 if media.container_id == None:
                     media.container_id = ''
                 print(media.type)
@@ -208,7 +226,8 @@ async def handleNavigation(d: dict, queueType:int=3, open:bool=True):
                 # albums cannot be added directly, although all items in it can
                 # be added
                 elif media.type.value == 'album':
-                    result = await heos.api.browse.browse_source_container(source_id=SOURCE_ID, container_id=media.container_id)
+                    source = sg.user_settings_get_entry('source_id', 5)
+                    result = await heos.api.browse.browse_source_container(source_id=source, container_id=media.container_id)
                     for m in result:
                         await heos.api.browse.add_to_queue(
                             player_id=player.id,
@@ -217,14 +236,12 @@ async def handleNavigation(d: dict, queueType:int=3, open:bool=True):
                             add_type=queueType
                         )
             makeArrowKeysWork(window['-SRESULT-'])
-            window['-SRESULT-'].SetFocus(True)
-        sg.PopupAnimated(None)
 
 async def getContainer(d: dict):
-    if len(d['-SRESULT-']) > 0 and heos.connected == True:
-        #sg.PopupAnimated(loading_animation)
+    if len(d['-SRESULT-']) > 0:
         media = window['-SRESULT-'].metadata[d['-SRESULT-'][0]]
-        result = await heos.api.browse.browse_source_container(source_id=SOURCE_ID, container_id=media.container_id)
+        source = sg.user_settings_get_entry('source_id', 5)
+        result = await heos.api.browse.browse_source_container(source_id=source, container_id=media.container_id)
         updateSeachTable(result)
         global undoRedo, lastCall
         undoRedo.add(lastCall)
@@ -234,15 +251,11 @@ def updateSeachTable(result):
     values = [[source.playable, source.name, source.artist, source.album]
                   for source in result]
     window['-SRESULT-'].update(values)
-    makeArrowKeysWork(window['-SRESULT-'])
-    window['-SRESULT-'].SetFocus(True)
     window['-SRESULT-'].metadata = result
-        #sg.PopupAnimated(None)
-
+    makeArrowKeysWork(window['-SRESULT-'])
+    
 async def search(searchString: str):
-    if heos.connected == True and len(searchString) > 0:
-        sg.PopupAnimated(loading_animation)
-        # deezer source id = 5
+    if len(searchString) > 0:
         # search_criteria: 1 - artist
         # search_criteria: 2 - album
         # search_criteria: 3 - track
@@ -262,11 +275,17 @@ async def search(searchString: str):
             return
         searchString = searchString[1:].strip()
         result = None
+        source = sg.user_settings_get_entry('source_id', 5)
+        if source == 3:
+            searchCriteria = 4 # for radio only stations are valid
         if searchString != '' and searchCriteria != 4 and searchCriteria != -1: 
-            result = await heos.api.browse.search(SOURCE_ID, searchString, searchCriteria)
+            result = await heos.api.browse.search(source, searchString, searchCriteria)
             updateSeachTable(result)
-        elif searchCriteria == 4:
-            result = await heos.api.browse.browse_source_container(SOURCE_ID, 'My Playlists')
+        elif searchCriteria == 4 and source != 3:
+            result = await heos.api.browse.browse_source_container(source, 'My Playlists')
+            updateSeachTable(result)
+        elif searchCriteria == 4 and source == 3:
+            result = await heos.api.browse.search(source, searchString, searchCriteria)
             updateSeachTable(result)
         else:
             window['-SEARCH-'].SetFocus(True)
@@ -274,12 +293,11 @@ async def search(searchString: str):
             global undoRedo, lastCall
             undoRedo.add(lastCall)
             lastCall = result
-        sg.PopupAnimated(None)
 
 # used for start/stop
 window.bind("<Command-p>", "Control + p")
 window.bind("<Control-p>", "Control + p")
-# search -> search + future command palette
+# search
 window.bind("<Command-f>", "key_search")
 window.bind("<Control-f>", "key_search")
 window.bind("<Command-s>", "key_search")
@@ -303,8 +321,8 @@ window.bind("<Control-Delete>", "delete")
 window.bind("<Command-BackSpace>", "delete")
 window.bind("<Control-BackSpace>", "delete")
 #refresh heos service
-window.bind("<Command-R>", "refresh")
-window.bind("<Control-R>", "refresh")
+window.bind("<Command-r>", "refresh")
+window.bind("<Control-r>", "refresh")
 #check if window has focus
 # window.bind('<FocusIn>', 'foucs_in')
 # window.bind('<FocusOut>', 'focus_out')
@@ -316,17 +334,21 @@ window.bind("<Shift-Left>", "vol_down")
 window.bind("<Shift-Down>", "vol_down")
 window.bind("<Shift-Right>", "vol_up")
 window.bind("<Shift-Up>", "vol_up")
+# select sources -> future settings
+window.bind("<Command-k>", "Control + k")
+window.bind("<Control-k>", "Control + k")
 
 heos = Pytheos
 player = Player
 undoRedo = Undoredo(10)
 lastCall = None
+resetCounter = 0
 
 async def main():
     sg.PopupAnimated(loading_animation)
-    await connect()
     global elem
     elem = window.find_element_with_focus()
+    await execCommand(connect, 'connecting on start')
     sg.PopupAnimated(None)
 
     while True:
@@ -334,8 +356,12 @@ async def main():
         await asyncio.sleep(0.01)
         # timeout in window.read() are needed to not make the event
         # listener hang up himself
-        global focus
         event, values = window.read(timeout=400)
+        global resetCounter
+        if resetCounter > 20:
+            updateStatusText()
+            resetCounter = 0
+        resetCounter += 1
         if event != '__TIMEOUT__':
             print(f"event: {event}")
             print(f"values: {values}")
@@ -345,22 +371,36 @@ async def main():
             if event == sg.WIN_CLOSED:
                 break
             # used window.bind previously to create key combos
+            elif event == 'Control + k':
+                source = await optionsPopup(sources)
+                if source != None:
+                    if source in unsupportedSources:
+                        sg.popup_error('Cannot set Amazon Music because it is not working as other services with HEOS.',
+                            title="Error on setting source"
+                        )
+                    else:
+                        sg.user_settings_set_entry('source_id', source)
+                        window['-SRESULT-'].update(values=[])
+                        window['-SRESULT-'].metadata = None
+                        window['-SEARCH-'].SetFocus(True)
             elif event == 'vol_up':
                 current = values['-VOLUME-']
                 if current < 99:
                     current += 2
                 else:
                     current = 100
-                await setVolume(current)
+                kwargs = {'volume': current}
+                await execCommand(setVolume, 'setting volume', **kwargs)
             elif event == 'vol_down':
                 current = values['-VOLUME-']
                 if current > 1:
                     current -= 2
                 else:
                     current = 0
-                await setVolume(current)
+                kwargs = {'volume': current}
+                await execCommand(setVolume, 'setting volume', **kwargs)
             elif event == 'refresh':
-                await connect()
+                await execCommand(connect, 'connecting')
             elif event == 'undo':
                 result = undoRedo.undo()
                 if result != None:
@@ -371,61 +411,76 @@ async def main():
                     updateSeachTable(result)
             elif event == 'key_search':
                 window['-SEARCH-'].set_focus(True)
-            elif event == 'Control + return' and elem != None and elem.Key == '-SRESULT-':
+            elif event == 'Control + return' and elem != None and elem.Key == '-SRESULT-' and not sg.user_settings_get_entry('source_id', 3):
                 #BUG: Bug in MacOS with modal windows: https: // github.com/PySimpleGUI/PySimpleGUI/issues/4511
-                type = await optionsPopup()
+                # AddToQueueType:
+                # PlayNow = 1
+                # PlayNext = 2
+                # AddToEnd = 3
+                # ReplaceAndPlay = 4
+                option = {
+                    2: ['Play next'],
+                    1: ['Play now'],
+                    3: ['Add to end'],
+                    4: ['Replace and play']
+                }
+                type = await optionsPopup(option)
                 if type != None:
-                    await handleNavigation(values, queueType=type, open=False)
+                    kwargs = {'d':values, 'queueType':type, 'open':False}
+                    await execCommand(handleNavigation, 'navigation through results', True, **kwargs)
             elif event == 'delete' and elem != None and elem.Key == '-QUEUE-':
-                await deleteFromQueue(values)
+                kwargs = {'d': values}
+                await execCommand(deleteFromQueue, 'deleting from queue', **kwargs)
             elif event == '-PLAY-'or event == 'Control + p':
-                await playPause()
+                await execCommand(playPause, 'play/pause', None)
             elif event == '-PREV-' or event == 'Control + left':
-                await playPrevious()
+                await execCommand(playPrevious, 'playing previous song')
             elif event == '-NEXT-' or event == 'Control + right':
-                await playNext()
+                await execCommand(playNext, 'playing next song')
             elif event == '-QUEUE-':
-                print('play a song')
-                await playFromQueue(values)
+                kwargs = {'d': values}
+                await execCommand(playFromQueue, 'playing from queue', **kwargs)
             elif event == '-VOLUME-':
-                print('set volume')
-                await setVolume(values['-VOLUME-'])
+                kwargs = {'volume': values['-VOLUME-']}
+                await execCommand(setVolume, 'setting volume', **kwargs)
             elif event == '-COMBO-':
                 if values['-COMBO-'] != '':
                     global heos
-                    heos = await pytheos.connect(values['-COMBO-'])
-                    await updateAfterConnect()
+                    kwargs = {'host': values['-COMBO-']}
+                    heos = await execCommand(pytheos.connect, 'conneting to heos', **kwargs)
+                    await execCommand(updateAfterConnect, 'updating after heos connection')
             elif event == '-SRESULT-':
-                await handleNavigation(values)
+                kwargs = {'d': values}
+                await execCommand(handleNavigation, 'navigating results', True, **kwargs)
             elif event == 'tab':
                 if elem is not None and elem.Key == '-QUEUE-' and len(window['-SRESULT-'].Widget.get_children()) > 0:
                     # Workaround: otherwise arrow keys do not work after set_focus()
                     makeArrowKeysWork(window['-SRESULT-'])
-                    window['-SRESULT-'].set_focus(True)
                 else:
                     # Workaround: otherwise arrow keys do not work after set_focus()
                     makeArrowKeysWork(window['-QUEUE-'])
-                    window['-QUEUE-'].set_focus(True)
             # React if return key was pressed
             elif elem is not None:
                 if event == 'return':
                     # If the search box is in focus, search
                     if elem.Type == sg.ELEM_TYPE_INPUT_TEXT:
-                        await search(values['-SEARCH-'])
+                        kwargs = {'searchString': values['-SEARCH-']}
+                        await execCommand(search, 'searching sources', True, **kwargs)
                     # If queue is in focus, play the selected song
                     elif elem.Key == "-QUEUE-":
-                        await playFromQueue(values)
+                        kwargs = {'d': values}
+                        await execCommand(playFromQueue, 'playing from queue', **kwargs)
                     # If search results are selected, add them to queue
                     elif elem.Key == '-SRESULT-':
-                        await handleNavigation(values)
+                        kwargs = {'d': values}
+                        await execCommand(handleNavigation, 'navigating results', True, **kwargs)
             elem = window.find_element_with_focus()
-
+            
     window.close()
 
 if __name__ == '__main__':
     asyncio.run(main())
 
-#TODO: add now playing info, add status bar, change search source, add setting
-#to set defaults (like source)
+#TODO: add now playing info
 
 

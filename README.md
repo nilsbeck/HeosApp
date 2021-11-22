@@ -29,7 +29,7 @@ implement the following:
 Using py2applet:
 ```bash
 py2applet --iconfile assets/music.png --make-setup HeosApp.py
-py2applet --make-setup HeosApp.py
+python setup.py py2app
 ```
 
 You can run the py script directly or create a bundle using pyinstaller:
